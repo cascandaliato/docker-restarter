@@ -29,7 +29,7 @@ for event in events:
     container_name = event["Actor"]["Attributes"]["name"]
     match event["status"]:
         case "start":
-            service = event["Actor"]["Attributes"]["com.docker.compose.service"]
+            service = event["Actor"]["Attributes"].get("com.docker.compose.service", None)
             if service in dependers:
                 time.sleep(10)
                 depender = event["Actor"]["Attributes"]["name"]
@@ -39,12 +39,12 @@ for event in events:
                 for depender in dependers[service]:
                     docker_client.containers.get(depender).restart()
 
-            if depends_on := event["Actor"]["Attributes"][DEPENDS_ON]:
+            if depends_on := event["Actor"]["Attributes"].get(DEPENDS_ON, None):
                 dependers.setdefault(get_dependee(depends_on), set()).add(
                     container_name
                 )
         case "destroy":
-            if depends_on := event["Actor"]["Attributes"][DEPENDS_ON]:
+            if depends_on := event["Actor"]["Attributes"].get(DEPENDS_ON, None):
                 dependee = get_dependee(depends_on)
                 dependers[dependee].remove(container_name)
                 if not dependers[dependee]:
