@@ -13,39 +13,44 @@ def get_dependee(depends_on):
     return depends_on.split(":")[0]
 
 
-for container_name in docker_client.containers.list():
+for container in docker_client.containers.list():
     if (
-        depends_on := docker_client.containers.get(container_name.name)
+        depends_on := docker_client.containers.get(container.name)
         .attrs["Config"]["Labels"]
         .get(DEPENDS_ON, "")
     ):
-        dependers.setdefault(get_dependee(depends_on), set()).add(container_name.name)
+        dependers.setdefault(get_dependee(depends_on), set()).add((container.id, container.name))
 
 for dependee in dependers.keys():
-    for depender in dependers[dependee]:
-        print(f"Container {depender} depends on service {dependee}")
+    for id, name in dependers[dependee]:
+        print(f"Container {name} (id {id}) depends on service {dependee}")
 
 for event in events:
-    container_name = event["Actor"]["Attributes"]["name"]
+    if event['status'].startswith('exec'): continue
+    id, name = event['id'], event["Actor"]["Attributes"]["name"]
+    print(f'Event {event["status"]} for container {name} (id {id})')
     match event["status"]:
         case "start":
             service = event["Actor"]["Attributes"].get("com.docker.compose.service", None)
             if service in dependers:
-                time.sleep(10)
-                depender = event["Actor"]["Attributes"]["name"]
                 print(
-                    f'Restarting the following container(s) in 10 seconds because container {container_name} (re)started: {", ".join(sorted(dependers[service]))}'
+                    f'Restarting the following container(s) in 10 seconds because container {name} (id {id}) (re)started: {", ".join(sorted(b + " (id " + a + ")" for a, b in dependers[service]))}'
                 )
-                for depender in dependers[service]:
-                    docker_client.containers.get(depender).restart()
+                time.sleep(10)
+                for cid, cname in dependers[service]:
+                    print(f'Restarting container {cname} (id {cid})')
+                    docker_client.containers.get(cid).restart()
 
             if depends_on := event["Actor"]["Attributes"].get(DEPENDS_ON, None):
+                if (id, name) in dependers.setdefault(get_dependee(depends_on)): continue
+                print(f'Container {name} (id {id}) depends on service {get_dependee(depends_on)}')
                 dependers.setdefault(get_dependee(depends_on), set()).add(
-                    container_name
+                    (id, name)
                 )
         case "destroy":
             if depends_on := event["Actor"]["Attributes"].get(DEPENDS_ON, None):
                 dependee = get_dependee(depends_on)
-                dependers[dependee].remove(container_name)
+                print(f'Removing dependency of container {name} (id {id}) from service {dependee}')
+                dependers.setdefault(dependee, set()).discard((id, name))
                 if not dependers[dependee]:
                     del dependers[dependee]

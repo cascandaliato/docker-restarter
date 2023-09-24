@@ -20,6 +20,7 @@ services:
   torrent:
     image: alpine
     command: sleep infinite
+    container_name: torrent
     depends_on:
       - vpn
 ```
