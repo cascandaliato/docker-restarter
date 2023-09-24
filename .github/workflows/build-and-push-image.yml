@@ -6,6 +6,9 @@ on:
       - "main"
   workflow_dispatch:
 
+env:
+  BUILDX_NO_DEFAULT_ATTESTATIONS: 1
+
 jobs:
   docker:
     runs-on: ubuntu-latest
