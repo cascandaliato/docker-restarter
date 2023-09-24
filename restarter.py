@@ -39,8 +39,11 @@ for event in events:
                 time.sleep(10)
                 for cid, cname in dependers[service]:
                     print(f'Restarting container {cname} (id {cid})')
-                    docker_client.containers.get(cid).restart()
-
+                    try:
+                      docker_client.containers.get(cid).restart()
+                    except:
+                      print(f'[ERROR] Could not restart container {cname} (id {cid})')
+                      raise
             if depends_on := event["Actor"]["Attributes"].get(DEPENDS_ON, None):
                 if (id, name) in dependers.setdefault(get_dependee(depends_on)): continue
                 print(f'Container {name} (id {id}) depends on service {get_dependee(depends_on)}')
