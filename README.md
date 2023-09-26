@@ -7,7 +7,8 @@
 ```yaml
 services:
   restarter:
-    image: ghcr.io/cascandaliato/docker-restarter    
+    image: ghcr.io/cascandaliato/docker-restarter
+    container_name: restarter
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
