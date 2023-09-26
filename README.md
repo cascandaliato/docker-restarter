@@ -11,12 +11,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
-  # dummy service that crashes every 5 seconds
+  # dummy service that crashes every 60 seconds
   vpn:
     image: alpine
-    command: sleep 5
+    command: sleep 60
+    container_name: vpn
 
-  # dummy service that depends on another service
+  # dummy service that depends on the crashing service
   torrent:
     image: alpine
     command: sleep infinite
@@ -30,7 +31,13 @@ Command line:
 $ docker compose up -d
 ...
 $ docker logs -f restarter
-Container torrent depends on service vpn
-Restarting the following container(s) in 10 seconds because container vpn (re)started: torrent
-...
+Initialization completed
+Containers depending on service vpn:
+  torrent (id 7bc6728bfd54, service torrent)
+... after 60 seconds ...
+Container vpn (id ad5903f2be77, service vpn) restarted
+The following containers depend on service vpn and will be restarted in 30 seconds:
+  torrent (id 7bc6728bfd54, service torrent)
+... after 30 seconds ...
+Restarting container torrent (id 7bc6728bfd54, service torrent)
 ```
