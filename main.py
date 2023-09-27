@@ -1,26 +1,3 @@
-# DOCKER_HOME (supported via library)
-# RESTARTER_AFTER_SECS = 30 [default 30]
-# RESTARTER_SCOPE = ALL, PROJECT [default ALL]
-# RESTARTER_LABEL_ENABLE = true/false [default false, aka enabled on all containers]
-#
-# com.cascandaliato.restarter = always/unhealthy/no/on-failure[:max-retries]/unless-stopped/dependency
-# com.cascandaliato.restarter.policy = always/unhealthy/no/on-failure[:max-retries]/unless-stopped/dependency
-# com.cascandaliato.restarter.after_secs = 30
-# com.cascandaliato.restarter.max_retries = 5
-#
-# SCOPE
-# com.docker.compose.config-hash: ca473020a24e16b75b9706528c531fc7aa6719dc0bb4bf1a7a8ce167670f0d48
-# com.docker.compose.container-number: 1
-# com.docker.compose.depends_on:
-# com.docker.compose.image: sha256:aa971cc1e7d83921ec453a958c0ba22f87159dc4c78956eea455fc62f19967d3
-# com.docker.compose.oneoff: False
-# com.docker.compose.project: arancino
-# com.docker.compose.project.config_files: /home/chef/torrentbox/servers/arancino/docker-compose.yml
-# com.docker.compose.project.working_dir: /home/chef/torrentbox/servers/arancino
-# com.docker.compose.replace: 791fccb627641d076e933b68ae6e97577405bceb1f8c8a167e651daaf380df3e
-# com.docker.compose.service: vpn
-# com.docker.compose.version: 2.21.0
-
 import os
 import threading
 from collections import defaultdict
