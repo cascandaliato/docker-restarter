@@ -1,89 +1,58 @@
+# DOCKER_HOME (supported via library)
+# RESTARTER_AFTER_SECS = 30 [default 30]
+# RESTARTER_SCOPE = ALL, PROJECT [default ALL]
+# RESTARTER_LABEL_ENABLE = true/false [default false, aka enabled on all containers]
+#
+# com.cascandaliato.restarter = always/unhealthy/no/on-failure[:max-retries]/unless-stopped/dependency
+# com.cascandaliato.restarter.policy = always/unhealthy/no/on-failure[:max-retries]/unless-stopped/dependency
+# com.cascandaliato.restarter.after_secs = 30
+# com.cascandaliato.restarter.max_retries = 5
+#
+# SCOPE
+# com.docker.compose.config-hash: ca473020a24e16b75b9706528c531fc7aa6719dc0bb4bf1a7a8ce167670f0d48
+# com.docker.compose.container-number: 1
+# com.docker.compose.depends_on:
+# com.docker.compose.image: sha256:aa971cc1e7d83921ec453a958c0ba22f87159dc4c78956eea455fc62f19967d3
+# com.docker.compose.oneoff: False
+# com.docker.compose.project: arancino
+# com.docker.compose.project.config_files: /home/chef/torrentbox/servers/arancino/docker-compose.yml
+# com.docker.compose.project.working_dir: /home/chef/torrentbox/servers/arancino
+# com.docker.compose.replace: 791fccb627641d076e933b68ae6e97577405bceb1f8c8a167e651daaf380df3e
+# com.docker.compose.service: vpn
+# com.docker.compose.version: 2.21.0
+
+import os
 import threading
 from collections import defaultdict
-from dataclasses import dataclass
 
 import docker
+from restarter.config import from_labels
+
+from restarter.models import Container, Service
+
 
 # Docker Compose labels
 DEPENDS_ON = "com.docker.compose.depends_on"
 SERVICE = "com.docker.compose.service"
 
 
-@dataclass(frozen=True, kw_only=True, order=True, repr=False)
-class Container:
-    name: str
-    id: str
-    service: str | None
-
-    def __repr__(self) -> str:
-        return f"{self.name} (id {self.id[:12]}, service {self.service})"
-
-
-class Service:
-    def __init__(self, name: str):
-        self.name: str = name
-        self._containers: set[Container] = set()
-        self._lock: threading.Lock = threading.Lock()
-        self._timer: threading.Timer | None = None
-
-    def add(self, container: Container) -> None:
-        with self._lock:
-            self._containers.add(container)
-
-    def remove(self, container: Container) -> None:
-        with self._lock:
-            self._containers.discard(container)
-
-    def __iter__(self):
-        with self._lock:
-            yield from sorted(self._containers)
-
-    def __bool__(self):
-        with self._lock:
-            return len(self._containers) > 0
-
-    def _restart(self):
-        for container in self:
-            print(f"Restarting container {container}")
-            try:
-                if c := docker_client.containers.get(container.id):
-                    c.restart()  # type: ignore
-                else:
-                    raise Exception(f"Cannot find container {container}")
-            except Exception as e:
-                print(f"Could not restart container {container} because of error: {e}")
-
-    def restart(self):
-        if self._timer and not self._timer.finished.is_set():
-            print(
-                f"Cancelling the most recently scheduled restart of containers depending on service {self.name}"
-            )
-            self._timer.cancel()
-
-        print(
-            f"The following containers depend on service {self.name} and will be restarted in 30 seconds:"
-        )
-        for container in self:
-            print(f"  {container}")
-        self._timer = threading.Timer(30, self._restart)
-        self._timer.daemon = False
-        self._timer.start()
-
-    def __contains__(self, container: Container):
-        return container in self._containers
-
-
 class keydefaultdict(defaultdict):
     def __missing__(self, key):
         if self.default_factory:
-            self[key] = self.default_factory(key)  # type: ignore
+            self[key] = self.default_factory(key)
             return self[key]
 
 
 def update_dependencies(event, verbose=False):
     attributes = event["Actor"]["Attributes"]
+    if attributes["name"] == "cb":
+        print(from_labels(attributes))
     container = Container(
-        name=attributes["name"], id=event["id"], service=attributes[SERVICE]
+        name=attributes["name"],
+        id=event["id"],
+        service=attributes[SERVICE],
+        config=from_labels(attributes),
+        docker_client=docker_client,
     )
     if not attributes[DEPENDS_ON]:
         return
@@ -138,7 +107,7 @@ if __name__ == "__main__":
     initial_events_thread = threading.Thread(target=load_initial_events, daemon=True)
     initial_events_thread.start()
 
-    monitored_services: keydefaultdict = keydefaultdict(Service)  # type: ignore
+    monitored_services: keydefaultdict = keydefaultdict(lambda name: Service(name=name))
     for container in docker_client.containers.list(
         filters={"label": [DEPENDS_ON, SERVICE]}
     ):
@@ -147,11 +116,14 @@ if __name__ == "__main__":
             continue
 
         labels = c.attrs["Config"]["Labels"]  # type: ignore
+        # print(from_labels(c.attrs["Config"]["Labels"]))
         monitored_services[get_service_name(labels[DEPENDS_ON])].add(
             Container(
                 name=container.name,  # type: ignore
                 id=container.id,  # type: ignore
                 service=labels[SERVICE],
+                config=from_labels(c.attrs["Config"]["Labels"]),
+                docker_client=docker_client,
             )
         )
     containers_loaded.set()
@@ -172,7 +144,13 @@ if __name__ == "__main__":
 
         attributes = event["Actor"]["Attributes"]
         service = attributes[SERVICE]
-        container = Container(name=attributes["name"], id=event["id"], service=service)
+        container = Container(
+            name=attributes["name"],
+            id=event["id"],
+            service=service,
+            config={},
+            docker_client=docker_client,
+        )
         if event["status"] == "start" and service in monitored_services:
             print(f"Container {container} restarted")
             monitored_services[service].restart()
