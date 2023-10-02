@@ -1,4 +1,4 @@
-# docker-restarter 🔄️
+# docker-restarter 🐋♻️
 
 ### Sample usage
 
@@ -12,33 +12,46 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
-  # dummy service that crashes every 60 seconds
+  # dummy service that could crash and restart or get replaced (e.g. when updated by watchtower)
   vpn:
-    image: alpine
-    command: sleep 60
     container_name: vpn
-
-  # dummy service that depends on the crashing service
-  torrent:
     image: alpine
     command: sleep infinite
+
+  # dummy service that depends on the crashing service
+  # this service needs:
+  #   - a label "restarter.depends_on_service" pointing to the same service specified in network_mode
+  #   - a healthcheck similar to the one below
+  torrent:
     container_name: torrent
-    depends_on:
-      - vpn
+    image: alpine
+    command: sleep infinite
+    network_mode: service:vpn
+    labels:
+      restarter.depends_on_service: vpn
+    healthcheck:
+      test: "curl -sf http://ipinfo.io/ip  || exit 1"
+      interval: 1m
+      timeout: 0s
+      retries: 0
 ```
 
-Command line:
+Start the full stack with
+```
+docker compose up -d
+```
+
+If you restart `vpn`, for example
+```
+docker restart vpn
+```
+or
+```
+docker rm -f vpn; docker compose up -d vpn
+```
+then `docker-restarter` will restart the container `torrent`:
 ```bash
-$ docker compose up -d
-...
 $ docker logs -f restarter
-Initialization completed
-Containers depending on service vpn:
-  torrent (id 7bc6728bfd54, service torrent)
-... after 60 seconds ...
-Container vpn (id ad5903f2be77, service vpn) restarted
-The following containers depend on service vpn and will be restarted in 30 seconds:
-  torrent (id 7bc6728bfd54, service torrent)
-... after 30 seconds ...
-Restarting container torrent (id 7bc6728bfd54, service torrent)
+Container torrent (id 4547ccd5d4ea) successfully removed
+tarted new container torrent (id 40fb83eee4b2)
 ```

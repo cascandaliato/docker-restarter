@@ -1,8 +1,1 @@
-.github
-venv
-
-.dockerignore
-.gitignore
-Dockerfile
-LICENSE
-README.md
+__pycache__
