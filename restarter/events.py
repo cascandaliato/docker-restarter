@@ -4,7 +4,7 @@ import logging
 _MONITORED_EVENTS = ("start", "health_status: unhealthy", "die")
 
 
-def handler(signal):
+def handler(check_containers):
     for event in docker_utils.client.events(
         decode=True,
         filters={"type": "container"},
@@ -14,4 +14,4 @@ def handler(signal):
             continue
         name, id = event["Actor"]["Attributes"]["name"], event["id"]
         logging.info(f'Received event "{status}" for container {name} ({id[:12]}).')
-        signal.set()
+        check_containers.set()
