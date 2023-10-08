@@ -1,13 +1,13 @@
 import logging
 import os
 import sys
+import threading
 from collections import ChainMap
 from enum import Enum
-from functools import lru_cache
 
-import docker
+from cachetools import LRUCache, cached
+from cachetools.keys import hashkey
 
-import restarter.docker_utils as docker_utils
 
 _PREFIX = "restarter"
 
@@ -38,9 +38,9 @@ class Policy(Enum):
 
 
 class GlobalSetting(Enum):
-    CHECK_EVERY_SECONDS = (0, int, 60)
-    GC_EVERY_SECONDS = (1, int, 300)
-    DEBOUNCE_SECONDS = (2, int, 10)
+    CHECK_MIN_FREQUENCY_SECONDS = (0, int, 10)
+    CHECK_MAX_FREQUENCY_SECONDS = (1, int, 60)
+    GC_EVERY_SECONDS = (2, int, 300)
     # SCOPE = (str, "all-containers")  # all-containers, compose-project
 
 
@@ -66,27 +66,22 @@ for setting in Setting:
     defaults[setting] = type_(_env(setting.name, default))
 
 
-def _from_labels(labels):
-    config = {}
+@cached(
+    cache=LRUCache(maxsize=100),
+    lock=threading.Lock(),
+    key=lambda id, name, _: hashkey(id, name),
+)
+def from_labels(id, name, labels):
+    settings = {}
     for setting in Setting:
         setting_name = to_label(setting)
         for label, value in labels.items():
             if label.strip().lower() == setting_name:
-                config[setting] = setting.value[1](value.strip())
-    return ChainMap(config, defaults)
-
-
-@lru_cache
-def for_container(id):
-    try:
-        container = docker_utils.client.containers.get(id)
-        settings = _from_labels(container.labels)
-        dump(settings, f"Container {container.name} ({container.id[:12]}) settings:")
-        return settings
-    except docker.errors.NotFound:
-        raise docker_utils.CannotRestartError(
-            f"Container id {id} doesn't exist anymore."
-        )
+                settings[setting] = setting.value[1](value.strip())
+    settings = ChainMap(settings, defaults)
+    if settings[Setting.ENABLE]:
+        dump(settings, f"Container {name} ({id[:12]}) settings:")
+    return settings
 
 
 _SORTED_SETTINGS = sorted(

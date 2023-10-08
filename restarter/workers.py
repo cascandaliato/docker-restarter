@@ -12,15 +12,17 @@ import docker
 import restarter.compose as compose
 import restarter.config as config
 import restarter.docker_utils as docker_utils
-from restarter.coalescing_queue import CoalescingQueue
+from restarter.signal import Signal
 from restarter.rwlock import RWLock
+
+lock = RWLock()
 
 
 class Worker:
     def __init__(self, name):
         self.name = name
         self.lock = threading.Lock()
-        self.work = CoalescingQueue()
+        self.work = Signal()
         self.done = threading.Event()
         self.restart_count = 0
         self.recent_status = deque([None, None], maxlen=2)
@@ -33,10 +35,7 @@ class Worker:
             # (1) the work queue is empty (the read-write lock shared with the containers poller and the events handler)
             # (2) and there is no work in progress (the lock below and the `done` Event)
             request = sys.maxsize
-            while (
-                time.time() - request
-                < config.global_settings[config.GlobalSetting.DEBOUNCE_SECONDS]
-            ):
+            while True:
                 time.sleep(1)
                 with self.lock:
                     try:
@@ -51,7 +50,7 @@ class Worker:
                         continue
                     else:
                         self.done.clear()
-
+                        break
             try:
                 try:
                     container = docker_utils.client.containers.get(self.name)
@@ -60,7 +59,9 @@ class Worker:
                         f"Container {self.name} doesn't exist anymore."
                     ) from err
 
-                settings = config.for_container(container.id)
+                settings = config.from_labels(
+                    container.id, container.name, container.labels
+                )
                 started_at = datetime.fromisoformat(
                     container.attrs["State"]["StartedAt"]
                 ).timestamp()
