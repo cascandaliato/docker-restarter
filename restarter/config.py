@@ -22,25 +22,34 @@ def _to_bool(s):
 
 
 class Policy(Enum):
+    # ALWAYS = "always"
     DEPENDENCY = "dependency"
+    # ON_FAILURE = "on-failure"
     UNHEALTHY = "unhealthy"
+    # UNLESS_STOPPED = "unless-stopped"
 
 
 class GlobalSetting(Enum):
-    CHECK_EVERY_SECONDS = (int, 60)
-    GC_EVERY_SECONDS = (int, 300)
+    CHECK_EVERY_SECONDS = (0, int, 60)
+    GC_EVERY_SECONDS = (1, int, 300)
+    DEBOUNCE_SECONDS = (2, int, 10)
+    # SCOPE = (str, "all-containers")  # all-containers, compose-project
 
 
 class Setting(Enum):
+    BACKOFF = (0, str, "no")
+    BACKOFF_MAX_SECONDS = (1, int, 10 * 60)
     ENABLE = (2, _to_bool, "yes")
     DEPENDS_ON = (3, str, "")
+    MAX_RETRIES = (5, int, sys.maxsize)
     NETWORK_MODE = (6, str, "")
     POLICY = (7, str, "dependency,unhealthy")
+    SECONDS_BETWEEN_RETRIES = (8, int, 60)
 
 
 global_settings = {}
 for setting in GlobalSetting:
-    type_, default = setting.value
+    _, type_, default = setting.value
     global_settings[setting] = type_(_env(setting.name, default))
 
 defaults = {}
@@ -87,9 +96,9 @@ def dump(settings, message):
 
 def dump_env_variables():
     message = "Environment variables:"
-    vars = [var for var in os.environ if var.startswith(f"{_PREFIX.upper()}_")]
-    for var in sorted(vars):
+    env_vars = [var for var in os.environ if var.startswith(f"{_PREFIX.upper()}_")]
+    for var in sorted(env_vars):
         message += f"\n  {var} = {os.environ[var]}"
-    if not vars:
+    if not env_vars:
         message += "\n  -"
     logging.info(message)

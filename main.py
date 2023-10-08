@@ -1,18 +1,15 @@
-import math
-import queue
-import threading
-
-
-def excepthook(args):
-    errors.put(args)
-
-
-errors = queue.Queue()
-threading.excepthook = excepthook
-
+# TODO
+# [ ] stopped/paused container and on-failure/always/unless-stopped policies
+# [ ] scope
+#     use concatenation of project, config_files and service
+#       'com.docker.compose.project': 'restarter',
+#       'com.docker.compose.project.config_files': '.../docker-compose.yml',
+#       'com.docker.compose.project.working_dir': '.../restarter',
+#       'com.docker.compose.service': 'vpn',
 
 import functools
 import logging
+import math
 import queue
 import random
 import sys
@@ -27,7 +24,15 @@ import docker
 import restarter.config as config
 import restarter.docker_utils as docker_utils
 
-print("hello")
+
+def excepthook(args):
+    errors.put(args)
+
+
+errors = queue.Queue()
+threading.excepthook = excepthook
+
+
 logging.basicConfig(format="[%(threadName)s] %(message)s", level=logging.INFO)
 
 
@@ -99,6 +104,7 @@ class Worker:
         self.lock = threading.Lock()
         self.work = CoalescingQueue()
         self.done = threading.Event()
+        self.restart_count = 0
         self.recent_status = deque([None, None], maxlen=2)
         threading.Thread(name=f"worker-{name}", target=self._work, daemon=True).start()
         logging.info(f"Worker created for container {name}")
@@ -108,42 +114,72 @@ class Worker:
             # Don't block on the work queue to allow GC to (reliably) assert whether
             # (1) the work queue is empty (the read-write lock shared with the containers poller and the events handler)
             # (2) and there is no work in progress (the lock below and the `done` Event)
-            while True:
+            request = sys.maxsize
+            while (
+                time.time() - request
+                < config.global_settings[config.GlobalSetting.DEBOUNCE_SECONDS]
+            ):
                 time.sleep(1)
                 with self.lock:
                     try:
-                        work_timestamp = self.work.get_nowait()
+                        request = self.work.get_nowait()
+                        if request is None:
+                            logging.info(
+                                f"Worker for container {self.name} is shutting down."
+                            )
+                            self.done.set()
+                            return
                     except queue.Empty:
                         continue
                     else:
                         self.done.clear()
-                break
-            if work_timestamp is None:
-                logging.info(f"Worker for container {self.name} is shutting down.")
-                self.done.set()
-                return
-
-            wait = max(math.ceil(work_timestamp + 10 - time.time()), 0)
-            if wait:
-                logging.info(f"Waiting {wait} seconds before taking any action.")
-                time.sleep(wait)
 
             try:
                 try:
                     container = docker_utils.client.containers.get(self.name)
-                except docker.errors.NotFound:
+                except docker.errors.NotFound as err:
                     raise CannotRestartError(
                         f"Container {self.name} doesn't exist anymore."
-                    )
+                    ) from err
 
                 settings = config.from_labels(container.labels)
+                config.dump(settings, f"Container {self.name} settings:")
                 started_at = datetime.fromisoformat(
                     container.attrs["State"]["StartedAt"]
                 ).timestamp()
-                if started_at > work_timestamp:
+                if started_at > request:
                     raise CannotRestartError(
                         f"Container {self.name} has already been restarted."
                     )
+
+                self.restart_count += 1
+                if self.restart_count > settings[config.Setting.MAX_RETRIES]:
+                    raise CannotRestartError(
+                        f"Container {self.name} has reached the maximum number of restart attempts ({settings[config.Setting.MAX_RETRIES]})."
+                    )
+                restart_count_str = self.restart_count
+                if settings[config.Setting.MAX_RETRIES] < sys.maxsize:
+                    restart_count_str += f" of {settings[config.Setting.MAX_RETRIES]}"
+                logging.info(f"Attempt #{restart_count_str} for container {self.name}.")
+
+                delay = settings[config.Setting.SECONDS_BETWEEN_RETRIES]
+                match settings[config.Setting.BACKOFF].strip().lower():
+                    case "linear":
+                        delay = min(
+                            delay * self.restart_count,
+                            settings[config.Setting.BACKOFF_MAX_SECONDS],
+                        )
+                    case "exponential":
+                        delay = min(
+                            delay * 2**self.restart_count,
+                            settings[config.Setting.BACKOFF_MAX_SECONDS],
+                        )
+                wait = max(math.ceil(started_at + delay - time.time()), 0)
+                if wait:
+                    logging.info(
+                        f"Waiting {wait} seconds before taking any action on container {self.name}."
+                    )
+                    time.sleep(wait)
 
                 network_mode = container.attrs["HostConfig"].get("NetworkMode", "")
                 if not network_mode.startswith("container:"):
@@ -153,7 +189,7 @@ class Worker:
                     except Exception as err:
                         raise CannotRestartError(
                             f"Failed to restart container {self.name}. Error: {err}"
-                        )
+                        ) from err
                 else:
                     dependency_id = network_mode.split(":")[1]
                     dependency = None
@@ -168,8 +204,9 @@ class Worker:
                         except Exception as err:
                             raise CannotRestartError(
                                 f"Failed to restart container {self.name}. Error: {err}"
-                            )
+                            ) from err
                     else:
+                        # look for new parent via our network_mode label
                         parent = None
                         restarter_network_mode = settings[config.Setting.NETWORK_MODE]
                         if not restarter_network_mode:
@@ -217,13 +254,25 @@ class Worker:
                         try:
                             logging.info(f"Removing container {self.name}.")
                             container.remove(force=True)
-                        except docker.errors.NotFound:
+                        except docker.errors.NotFound as err:
+                            # TODO: is raise needed?
                             raise CannotRestartError(
                                 f"Container {self.name} doesn't exist anymore."
-                            )
+                            ) from err
 
-                        logging.info(f"Recreating container {self.name}.")
-                        docker_utils.client.containers.run(**run_args)
+                        try:
+                            logging.info(f"Recreating container {self.name}.")
+                            docker_utils.client.containers.run(**run_args)
+                        except docker.errors.APIError as err:
+                            if "Conflict. The container name" in str(
+                                err
+                            ) and "is already in use by container" in str(err):
+                                raise CannotRestartError(
+                                    f"Container {self.name} has already been restarted by an external program. Error: {err}"
+                                ) from err
+                            else:
+                                raise
+
             except CannotRestartError as err:
                 logging.info(
                     f"Can't/won't restart container {self.name}. Reason: {err}"
@@ -259,6 +308,11 @@ COMPOSE_WORKING_DIR = "com.docker.compose.project.working_dir"
 # globals
 workers_lock = RWLock()
 workers = Workers()
+
+
+# def get_self_compose_project(docker_util.client):
+#     labels = docker_util.client.containers.get(get_self_id()).attrs["Config"]["Labels"]
+#     return {k: labels[k] for k in [PROJECT, CONFIG_FILES, WORKING_DIR]}
 
 
 def timed(*, message):
@@ -305,6 +359,7 @@ def check_containers():
         settings = config.from_labels(container.labels)
         if not settings[config.Setting.ENABLE]:
             continue
+        # config.dump(settings, f"Container {container.name} settings:")
 
         if (
             config.Policy.UNHEALTHY in settings[config.Setting.POLICY]
@@ -324,6 +379,8 @@ def check_containers():
                 if dependency_id in containers_idx["id"]:
                     dependencies.add(containers_idx["id"][dependency_id])
 
+            # TODO: distinguish between service_started, service_healthy, service_completed_successfully
+            # "com.docker.compose.depends_on": "restarter:service_started:false,vpn2:service_started:false",
             for depends_on in container.labels.get(COMPOSE_DEPENDS_ON, "").split(","):
                 if not depends_on:
                     continue
@@ -355,6 +412,9 @@ def check_containers():
                 container.attrs["State"]["StartedAt"]
             ).timestamp()
             for dependency in dependencies:
+                dependency_started_at = datetime.fromisoformat(
+                    dependency.attrs["State"]["StartedAt"]
+                ).timestamp()
                 if (
                     dependency.attrs["State"].get("Health", {}).get("Status", "")
                     == "unhealthy"
@@ -364,21 +424,17 @@ def check_containers():
                         f"Container {dependency.name} is in unhealthy state or not running and container {container.name} depends on it."
                     )
                     to_be_restarted.add(dependency.name)
-                    to_be_restarted.add(container.name)
-
-                dependency_started_at = datetime.fromisoformat(
-                    dependency.attrs["State"]["StartedAt"]
-                ).timestamp()
-                if started_at <= dependency_started_at:
+                    # to_be_restarted.add(container.name)
+                elif started_at <= dependency_started_at:
                     logging.info(
                         f"Container {container.name} has been started before its dependency {dependency.name}."
                     )
                     to_be_restarted.add(container.name)
 
-    timestamp = time.time()
+    now = time.time()
     for container_name in to_be_restarted:
         with workers_lock.r_locked():
-            workers[container_name].work.put(timestamp)
+            workers[container_name].work.put(now)
 
 
 @repeat(
@@ -386,6 +442,7 @@ def check_containers():
 )
 @timed(message="Periodic garbage collection")
 def gc():
+    logging.info(f"Number of threads: {threading.active_count()}")
     with workers_lock.w_locked():
         for name in list(workers.keys()):
             with workers[name].lock:
@@ -429,6 +486,7 @@ threading.Thread(
     target=repeat(
         every_seconds=config.global_settings[config.GlobalSetting.CHECK_EVERY_SECONDS]
     )(timed(message="Periodic containers check")(check_containers)),
+    daemon=True,
 ).start()
 time.sleep(random.randrange(10))
 threading.Thread(name="gc", target=gc, daemon=True).start()

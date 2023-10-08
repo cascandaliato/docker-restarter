@@ -53,9 +53,19 @@ In the example above, `docker-restarter` will restart containers `vpn` and `torr
   | `restarter.network_mode` | This setting should match the container `network_mode` as defined in `docker-compose.yaml`. Required to recreate a child container (`torrent`) if the parent container (`vpn`) gets replaced, e.g. after a `watchtower` update. | not set | `service:<service_name>`, for example `service:vpn` |
 | `restarter.policy` | List of scenarios in which the container should be restarted. | `dependency,unhealthy` | Comma-separated list of any combination of the following: `dependency` (restart if the service defined via `restarter.network_mode` restarts), `unhealthy` (restart if this container becomes unhealthy). |
 
-These settings can be set at global level via similarly named environment variables:
+These settings can be set globally (i.e. once for all containers) via similarly named environment variables:
   - `RESTARTER_ENABLE` (by default `docker-restarter` is enabled on all containers)
   - `RESTARTER_NETWORK_MODE` (_not very useful_)
   - `RESTARTER_POLICY`
 
-_Note: all values are case-insensitive._
+_Notes:_
+- all values are case-insensitive;
+- container-level settings take priority over global settings.
+
+Finally, the following environment variables allow to tweak some internal timings:
+
+| Environment variable | Description | Default value | Valid values |
+| -------------------- | ----------- | ------------- | ------------ |
+| `RESTARTER_CHECK_EVERY_SECONDS` | How frequently to check for containers status. | `60` (every minute) | Any number `>= 0`. |
+| `RESTARTER_DEBOUNCE_SECONDS` | Wait until this amount of seconds has passed since the last event for a given container. | `10` (every minute) | Any number `>= 0`. |
+| `RESTARTER_GC_EVERY_SECONDS` | How frequently to free up memory, e.g. by removing workers(=threads) for containers that are now healthy. | `300` (every 5 minutes) | Any number `>= 0`. |

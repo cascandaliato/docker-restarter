@@ -1,19 +1,24 @@
 services:
   restarter:
-    image: ghcr.io/cascandaliato/docker-restarter
+    # image: ghcr.io/cascandaliato/docker-restarter
+    build:
+      context: .
     container_name: restarter
     init: true
-    # environment:
-    #   RESTARTER_CHECK_EVERY_SECONDS: 60
-    #   RESTARTER_GC_EVERY_SECONDS: 300
+    environment:
+      #   RESTARTER_CHECK_EVERY_SECONDS: 60
+      RESTARTER_DEBOUNCE_SECONDS: 2
+      RESTARTER_GC_EVERY_SECONDS: 50
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   parent:
     image: alpine
     container_name: parent
-    command: sleep 120
+    command: sleep 20
     init: true
+    labels:
+      restarter.seconds_between_retries: 2
 
   child:
     container_name: child
@@ -23,7 +28,8 @@ services:
     network_mode: &parent_network service:parent
     labels:
       restarter.network_mode: *parent_network
+      restarter.seconds_between_retries: 2
     healthcheck:
       test: "curl -sf http://ipinfo.io/ip  || exit 1"
-      interval: 10s
+      interval: 5s
       start_period: 1s
