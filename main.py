@@ -94,10 +94,6 @@ class RWLock:
             self.w_release()
 
 
-class CannotRestartError(Exception):
-    pass
-
-
 class Worker:
     def __init__(self, name):
         self.name = name
@@ -138,23 +134,22 @@ class Worker:
                 try:
                     container = docker_utils.client.containers.get(self.name)
                 except docker.errors.NotFound as err:
-                    raise CannotRestartError(
+                    raise docker_utils.CannotRestartError(
                         f"Container {self.name} doesn't exist anymore."
                     ) from err
 
-                settings = config.from_labels(container.labels)
-                config.dump(settings, f"Container {self.name} settings:")
+                settings = config.for_container(container.id)
                 started_at = datetime.fromisoformat(
                     container.attrs["State"]["StartedAt"]
                 ).timestamp()
                 if started_at > request:
-                    raise CannotRestartError(
+                    raise docker_utils.CannotRestartError(
                         f"Container {self.name} has already been restarted."
                     )
 
                 self.restart_count += 1
                 if self.restart_count > settings[config.Setting.MAX_RETRIES]:
-                    raise CannotRestartError(
+                    raise docker_utils.CannotRestartError(
                         f"Container {self.name} has reached the maximum number of restart attempts ({settings[config.Setting.MAX_RETRIES]})."
                     )
                 restart_count_str = self.restart_count
@@ -187,7 +182,7 @@ class Worker:
                         logging.info(f"Restarting container {self.name}.")
                         container.restart()
                     except Exception as err:
-                        raise CannotRestartError(
+                        raise docker_utils.CannotRestartError(
                             f"Failed to restart container {self.name}. Error: {err}"
                         ) from err
                 else:
@@ -202,7 +197,7 @@ class Worker:
                         try:
                             container.restart()
                         except Exception as err:
-                            raise CannotRestartError(
+                            raise docker_utils.CannotRestartError(
                                 f"Failed to restart container {self.name}. Error: {err}"
                             ) from err
                     else:
@@ -210,7 +205,7 @@ class Worker:
                         parent = None
                         restarter_network_mode = settings[config.Setting.NETWORK_MODE]
                         if not restarter_network_mode:
-                            raise CannotRestartError(
+                            raise docker_utils.CannotRestartError(
                                 f"Label {RESTARTER_NETWORK_MODE} is required in order to recreate component {self.name}."
                             )
                         if restarter_network_mode.lower().startswith("container:"):
@@ -243,7 +238,7 @@ class Worker:
                                 pass
 
                         if not parent:
-                            raise CannotRestartError(
+                            raise docker_utils.CannotRestartError(
                                 f"Could not find any container matching {RESTARTER_NETWORK_MODE}={restarter_network_mode}."
                             )
 
@@ -256,7 +251,7 @@ class Worker:
                             container.remove(force=True)
                         except docker.errors.NotFound as err:
                             # TODO: is raise needed?
-                            raise CannotRestartError(
+                            raise docker_utils.CannotRestartError(
                                 f"Container {self.name} doesn't exist anymore."
                             ) from err
 
@@ -267,13 +262,13 @@ class Worker:
                             if "Conflict. The container name" in str(
                                 err
                             ) and "is already in use by container" in str(err):
-                                raise CannotRestartError(
+                                raise docker_utils.CannotRestartError(
                                     f"Container {self.name} has already been restarted by an external program. Error: {err}"
                                 ) from err
                             else:
                                 raise
 
-            except CannotRestartError as err:
+            except docker_utils.CannotRestartError as err:
                 logging.info(
                     f"Can't/won't restart container {self.name}. Reason: {err}"
                 )
@@ -356,10 +351,9 @@ def check_containers():
 
     to_be_restarted = set()
     for container in containers:
-        settings = config.from_labels(container.labels)
+        settings = config.for_container(container.id)
         if not settings[config.Setting.ENABLE]:
             continue
-        # config.dump(settings, f"Container {container.name} settings:")
 
         if (
             config.Policy.UNHEALTHY in settings[config.Setting.POLICY]

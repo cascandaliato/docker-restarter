@@ -3,6 +3,11 @@ import os
 import sys
 from collections import ChainMap
 from enum import Enum
+from functools import lru_cache
+
+import docker
+
+import restarter.docker_utils as docker_utils
 
 _PREFIX = "restarter"
 
@@ -61,7 +66,7 @@ for setting in Setting:
         defaults[setting] = type_(_env(setting.name, default))
 
 
-def from_labels(labels):
+def _from_labels(labels):
     config = {}
     for setting in Setting:
         key = f"{_PREFIX}.{setting.name.lower()}"
@@ -70,6 +75,19 @@ def from_labels(labels):
             if setting == Setting.POLICY:
                 config[setting] = _parse_policy(config[setting])
     return ChainMap(config, defaults)
+
+
+@lru_cache
+def for_container(id):
+    try:
+        container = docker_utils.client.containers.get(id)
+        settings = _from_labels(container.labels)
+        dump(settings, f"Container {container.name} ({container.id[:12]}) settings:")
+        return settings
+    except docker.errors.NotFound:
+        raise docker_utils.CannotRestartError(
+            f"Container id {id} doesn't exist anymore."
+        )
 
 
 _SORTED_SETTINGS = sorted(

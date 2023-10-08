@@ -5,6 +5,10 @@ import docker
 from docker.types import DeviceRequest, LogConfig, Mount, Ulimit
 
 
+class CannotRestartError(Exception):
+    pass
+
+
 def get_container_run_args(container, parent_id):
     image = container.image
 
