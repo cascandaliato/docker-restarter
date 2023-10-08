@@ -27,7 +27,6 @@ import docker
 import restarter.config as config
 import restarter.docker_utils as docker_utils
 
-print("hello")
 logging.basicConfig(format="[%(threadName)s] %(message)s", level=logging.INFO)
 
 
