@@ -3,16 +3,17 @@ import threading
 import time
 
 import restarter.config as config
-from restarter.workers import lock as workers_lock
 
 
 def gc(workers):
     while True:
         start = time.time()
         logging.info(f"Garbage collection... Starting")
-
-        logging.info(f"Number of threads: {threading.active_count()}")
-        with workers_lock.w_locked():
+        active_threads = sorted(t.name for t in threading.enumerate())
+        logging.info(
+            f"Active threads ({len(active_threads)}): {', '.join(active_threads)}."
+        )
+        with workers.lock:
             for name in list(workers.keys()):
                 with workers[name].lock:
                     if workers[name].work.empty() and workers[name].done.is_set():

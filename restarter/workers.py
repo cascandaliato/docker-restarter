@@ -13,9 +13,6 @@ import restarter.compose as compose
 import restarter.config as config
 import restarter.docker_utils as docker_utils
 from restarter.signal import Signal
-from restarter.rwlock import RWLock
-
-lock = RWLock()
 
 
 class Worker:
@@ -173,7 +170,6 @@ class Worker:
                             logging.info(f"Removing container {self.name}.")
                             container.remove(force=True)
                         except docker.errors.NotFound as err:
-                            # TODO: is raise needed? what if remove succeed and run fails? the next run will not find the container
                             raise docker_utils.CannotRestartError(
                                 f"Container {self.name} doesn't exist anymore."
                             ) from err
@@ -200,15 +196,14 @@ class Worker:
                 self.done.set()
 
 
-class Workers(dict[str, Worker], RWLock):
+class Workers(dict[str, Worker]):
     def __init__(self):
-        self._lock = RWLock()
+        self.lock = threading.Lock()
         dict.__init__(self)
-        RWLock.__init__(self)
 
     def __getitem__(self, name):
         if name not in self:
-            with self.w_locked():
+            with self.lock:
                 if name not in self:
                     self[name] = Worker(name)
         return super().__getitem__(name)

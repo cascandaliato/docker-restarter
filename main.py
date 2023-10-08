@@ -1,28 +1,3 @@
-# TODO
-# [ ] stopped/paused container and on-failure/always/unless-stopped policies
-# [ ] scope
-#     use concatenation of project, config_files and service
-#       'com.docker.compose.project': 'restarter',
-#       'com.docker.compose.project.config_files': '.../docker-compose.yml',
-#       'com.docker.compose.project.working_dir': '.../restarter',
-#       'com.docker.compose.service': 'vpn',
-# [ ] print diff of container.attrs before/after being recreated
-# State.Status == exited and State.ExitCode < 125 https://docs.docker.com/engine/reference/run/#exit-status
-# maybe consider OOMKilled: true, and exclude dead:true too
-# "State": {
-#     "Status": "exited",
-#     "Running": false,
-#     "Paused": false,
-#     "Restarting": false,
-#     "OOMKilled": false,
-#     "Dead": false,
-#     "Pid": 0,
-#     "ExitCode": 3,
-#     "Error": "",
-#     "StartedAt": "2023-10-08T14:08:06.584696474Z",
-#     "FinishedAt": "2023-10-08T14:08:09.585841566Z"
-# },
-
 import logging
 import queue
 import threading

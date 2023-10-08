@@ -6,7 +6,6 @@ from datetime import datetime
 import restarter.compose as compose
 import restarter.config as config
 import restarter.docker_utils as docker_utils
-from restarter.workers import lock as workers_lock
 
 
 def check_containers(signal, workers):
@@ -51,8 +50,6 @@ def check_containers(signal, workers):
                     if dependency_id in containers_idx["id"]:
                         dependencies.add(containers_idx["id"][dependency_id])
 
-                # TODO: distinguish between service_started, service_healthy, service_completed_successfully
-                # "com.docker.compose.depends_on": "restarter:service_started:false,vpn2:service_started:false",
                 for depends_on in container.labels.get(
                     compose.COMPOSE_DEPENDS_ON, ""
                 ).split(","):
@@ -107,7 +104,7 @@ def check_containers(signal, workers):
 
         now = time.time()
         for container_name in to_be_restarted:
-            with workers_lock.r_locked():
+            with workers.lock:
                 workers[container_name].work.set(now)
 
         logging.info(f"Checking containers... Done ({round(time.time() - start, 1)}s)")
