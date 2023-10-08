@@ -13,7 +13,10 @@ _PREFIX = "restarter"
 
 
 def _env(setting, default):
-    return os.environ.get(f"{_PREFIX.upper()}_{setting.upper()}", default)
+    for name, value in os.environ.items():
+        if name.strip().upper() == f"{_PREFIX.upper()}_{setting.upper()}":
+            return value.strip()
+    return default
 
 
 def _parse_policy(policy):
@@ -48,7 +51,7 @@ class Setting(Enum):
     DEPENDS_ON = (3, str, "")
     MAX_RETRIES = (5, int, sys.maxsize)
     NETWORK_MODE = (6, str, "")
-    POLICY = (7, str, "dependency,unhealthy")
+    POLICY = (7, _parse_policy, "dependency,unhealthy")
     SECONDS_BETWEEN_RETRIES = (8, int, 60)
 
 
@@ -60,20 +63,16 @@ for setting in GlobalSetting:
 defaults = {}
 for setting in Setting:
     _, type_, default = setting.value
-    if setting == Setting.POLICY:
-        defaults[setting] = _parse_policy(type_(_env(setting.name, default)))
-    else:
-        defaults[setting] = type_(_env(setting.name, default))
+    defaults[setting] = type_(_env(setting.name, default))
 
 
 def _from_labels(labels):
     config = {}
     for setting in Setting:
-        key = f"{_PREFIX}.{setting.name.lower()}"
-        if key in labels:
-            config[setting] = setting.value[1](labels[key])
-            if setting == Setting.POLICY:
-                config[setting] = _parse_policy(config[setting])
+        setting_name = f"{_PREFIX}.{setting.name.lower()}"
+        for label, value in labels.items():
+            if label.strip().lower() == setting_name:
+                config[setting] = setting.value[1](value.strip())
     return ChainMap(config, defaults)
 
 
