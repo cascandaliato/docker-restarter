@@ -1,3 +1,7 @@
+import logging
+import time
+
+import docker
 from docker.types import DeviceRequest, LogConfig, Mount, Ulimit
 
 
@@ -208,3 +212,17 @@ def get_container_run_args(container, parent_id):
     # }
 
     return run_args
+
+
+client = docker.from_env()
+
+
+def list_with_retry(*args, **kwargs):
+    while True:
+        try:
+            return client.containers.list(*args, **kwargs)
+        except docker.errors.NotFound as err:
+            logging.info(
+                f"Failed to retrieve containers. Retrying in one second. Error: {err}"
+            )
+            time.sleep(1)

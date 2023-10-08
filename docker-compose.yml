@@ -1,0 +1,29 @@
+services:
+  restarter:
+    image: ghcr.io/cascandaliato/docker-restarter
+    container_name: restarter
+    init: true
+    # environment:
+    #   RESTARTER_CHECK_EVERY_SECONDS: 60
+    #   RESTARTER_GC_EVERY_SECONDS: 300
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  parent:
+    image: alpine
+    container_name: parent
+    command: sleep 120
+    init: true
+
+  child:
+    container_name: child
+    image: alpine
+    init: true
+    command: sh -c 'apk add curl; sleep infinite'
+    network_mode: &parent_network service:parent
+    labels:
+      restarter.network_mode: *parent_network
+    healthcheck:
+      test: "curl -sf http://ipinfo.io/ip  || exit 1"
+      interval: 10s
+      start_period: 1s
