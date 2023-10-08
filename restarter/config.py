@@ -69,7 +69,7 @@ for setting in Setting:
 def _from_labels(labels):
     config = {}
     for setting in Setting:
-        setting_name = f"{_PREFIX}.{setting.name.lower()}"
+        setting_name = to_label(setting)
         for label, value in labels.items():
             if label.strip().lower() == setting_name:
                 config[setting] = setting.value[1](value.strip())
@@ -119,3 +119,7 @@ def dump_env_variables():
     if not env_vars:
         message += "\n  -"
     logging.info(message)
+
+
+def to_label(setting):
+    return f"{_PREFIX}.{setting.name.lower()}"
