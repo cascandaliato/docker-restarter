@@ -19,7 +19,7 @@ class Worker:
     def __init__(self, name):
         self.name = name
         self.lock = threading.Lock()
-        self.work = Signal()
+        self.signal = Signal()
         self.done = threading.Event()
         self.restart_count = 0
         self.recent_status = deque([None, None], maxlen=2)
@@ -28,15 +28,15 @@ class Worker:
 
     def _work(self):
         while True:
-            # Don't block on the work queue to allow GC to (reliably) assert whether
-            # (1) the work queue is empty (the read-write lock shared with the containers poller and the events handler)
-            # (2) and there is no work in progress (the lock below and the `done` Event)
+            # Don't block on the work signal (get_nowait) to allow the GC to periodically check whether
+            # (1) the work queue is empty
+            # (2) and there is no work in progress
             request = sys.maxsize
             while True:
                 time.sleep(1)
                 with self.lock:
                     try:
-                        request = self.work.get_nowait()
+                        request = self.signal.get_nowait()
                         if request is None:
                             logging.info(
                                 f"Worker for container {self.name} is shutting down."
@@ -139,13 +139,13 @@ class Worker:
                         elif restarter_network_mode.lower().startswith("service:"):
                             service = restarter_network_mode.split(":")[1]
                             for p in docker_utils.list_with_retry():
-                                if p.labels.get(compose.COMPOSE_SERVICE, "") == service:
+                                if p.labels.get(compose.SERVICE, "") == service:
                                     parent = p
                                     break
-                        elif container.labels.get(compose.COMPOSE_SERVICE, ""):
+                        elif container.labels.get(compose.SERVICE, ""):
                             service = restarter_network_mode
                             for p in docker_utils.list_with_retry():
-                                if p.labels.get(compose.COMPOSE_SERVICE, "") == service:
+                                if p.labels.get(compose.SERVICE, "") == service:
                                     parent = p
                                     break
                         else:
@@ -199,11 +199,12 @@ class Worker:
 class Workers(dict[str, Worker]):
     def __init__(self):
         self.lock = threading.Lock()
+        self._lock = threading.Lock()
         dict.__init__(self)
 
     def __getitem__(self, name):
         if name not in self:
-            with self.lock:
+            with self._lock:
                 if name not in self:
                     self[name] = Worker(name)
         return super().__getitem__(name)

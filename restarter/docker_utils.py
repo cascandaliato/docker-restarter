@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime
 
 import docker
 from docker.types import DeviceRequest, LogConfig, Mount, Ulimit
@@ -230,3 +231,11 @@ def list_with_retry(*args, **kwargs):
                 f"Failed to retrieve containers. Retrying in one second. Error: {err}"
             )
             time.sleep(1)
+
+
+def started_at(container):
+    return datetime.fromisoformat(container.attrs["State"]["StartedAt"]).timestamp()
+
+
+def is_unhealthy(container):
+    return container.attrs["State"].get("Health", {}).get("Status", "") == "unhealthy"
