@@ -59,9 +59,7 @@ class Worker:
                 settings = config.from_labels(
                     container.id, container.name, container.labels
                 )
-                started_at = datetime.fromisoformat(
-                    container.attrs["State"]["StartedAt"]
-                ).timestamp()
+                started_at = docker_utils.started_at(container)
                 if started_at > request:
                     raise docker_utils.CannotRestartError(
                         f"Container {self.name} has already been restarted."
@@ -78,7 +76,7 @@ class Worker:
                 logging.info(f"Attempt #{restart_count_str} for container {self.name}.")
 
                 delay = settings[config.Setting.SECONDS_BETWEEN_RETRIES]
-                match settings[config.Setting.BACKOFF].strip().lower():
+                match settings[config.Setting.BACKOFF]:
                     case "linear":
                         delay = min(
                             delay * self.restart_count,

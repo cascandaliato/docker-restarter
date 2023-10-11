@@ -25,6 +25,10 @@ def _parse_policy(policy):
     )
 
 
+def _str_lower(s):
+    return str(s).lower()
+
+
 def _to_bool(s):
     return s.strip().lower() in ["yes", "true"]
 
@@ -45,7 +49,7 @@ class GlobalSetting(Enum):
 
 
 class Setting(Enum):
-    BACKOFF = (0, str, "no")
+    BACKOFF = (0, _str_lower, "no")
     BACKOFF_MAX_SECONDS = (1, int, 10 * 60)
     ENABLE = (2, _to_bool, "yes")
     DEPENDS_ON = (3, str, "")
