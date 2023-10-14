@@ -239,3 +239,7 @@ def started_at(container):
 
 def is_unhealthy(container):
     return container.attrs["State"].get("Health", {}).get("Status", "") == "unhealthy"
+
+
+def cstr(container):
+    return f"{container.name} ({container.id[:12]})"

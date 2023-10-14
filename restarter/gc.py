@@ -15,12 +15,13 @@ def gc(workers):
         )
         with workers.lock:
             for name in list(workers.keys()):
-                with workers[name].lock:
-                    if workers[name].work.empty() and workers[name].done.is_set():
+                worker = workers[name]
+                with worker.lock:
+                    if worker.work.empty() and worker.done.is_set():
                         logging.info(
                             f"Worker for container {name} is not required anymore."
                         )
-                        workers[name].work.put(None)
+                        worker.work.put(None)  # tell the thread to shutdown
                         del workers[name]
 
         logging.info(f"Garbage collection... Done ({round(time.time() - start, 1)}s)")

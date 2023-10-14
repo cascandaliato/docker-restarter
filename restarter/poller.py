@@ -1,15 +1,11 @@
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime
 
 import restarter.compose as compose
 import restarter.config as config
 import restarter.docker_utils as docker_utils
-
-
-def cstr(container):
-    return f"{container.name} ({container.id[:12]})"
+from restarter.docker_utils import cstr
 
 
 def check_containers(signal, workers):
